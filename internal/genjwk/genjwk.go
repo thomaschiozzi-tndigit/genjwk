@@ -1,83 +1,91 @@
 package genjwk
 
 import (
-	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/lestrrat-go/jwx/jwk"
 )
 
-const rsaModulusSize = 3072 // in bits
-
-func GenEcdsaKey(public bool) (string, error) {
-	rawKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+func toPublic(key jwk.Key) (jwk.Key, error) {
+	pubKey, err := key.PublicKey()
 	if err != nil {
-		return "", fmt.Errorf("failed to generare ECDSA key: %w", err)
+		return nil, fmt.Errorf("failed to convert to publci key: %w", err)
 	}
-	var key jwk.Key
-	if public {
-		key, err = jwk.New(rawKey.PublicKey)
-		if err != nil {
-			return "", fmt.Errorf("failed to create public only key: %w", err)
-		}
-	} else {
-		key, err = jwk.New(rawKey)
-		if err != nil {
-			return "", fmt.Errorf("failed to create private key: %w", err)
-
-		}
-	}
-	kid, err := key.Thumbprint(crypto.SHA256)
-	if err != nil {
-		return "", fmt.Errorf("failed to produce key thumbprint for RSA key: %w", err)
-	}
-	serKid := base64.RawURLEncoding.EncodeToString(kid)
-	key.Set(jwk.KeyIDKey, serKid)
-	key.Set(jwk.KeyUsageKey, "sig")
-	serKey, err := json.Marshal(key)
-	if err != nil {
-		return "", fmt.Errorf("failed to serialize key: %w", err)
-	}
-	return string(serKey), nil
+	return pubKey, err
 }
 
-func GenRsaKey(public bool, usage string) (string, error) {
-	if usage == "" || (usage != "sig" && usage != "enc") {
-		return "", fmt.Errorf("invalid usage %s: must be either sig or enc", usage)
-	}
-	rawKey, err := rsa.GenerateKey(rand.Reader, rsaModulusSize)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate RSA private key: %w", err)
-	}
-	var key jwk.Key
-	if public {
-		key, err = jwk.New(rawKey.PublicKey)
-		if err != nil {
-			return "", fmt.Errorf("failed to create public only key: %w", err)
+func defaultAlg(kty string, use string) string {
+	switch use {
+	case "sig":
+		switch ku := strings.ToUpper(kty); ku {
+		case "EC":
+			return "ES256"
+		case "RSA":
+			return "RS256"
+		case "":
+			panic("missing key use")
+		default:
+			panic("unexpected key type: " + kty)
 		}
-	} else {
-		key, err = jwk.New(rawKey)
-		if err != nil {
-			return "", fmt.Errorf("failed to create private key: %w", err)
+	case "enc":
+		switch ku := strings.ToUpper(kty); ku {
+		case "EC":
+			return "ECDH-ES"
+		case "RSA":
+			return "RSA_OAEP"
+		case "":
+			panic("missing key use")
+		default:
+			panic("unexpected key type: " + kty)
+		}
+	case "":
+		panic("missing key use")
+	default:
+		panic("unexpected key use: " + use)
+	}
+}
 
+func genBaseKey(kty KeyTypes) (jwk.Key, error) {
+	switch kty {
+	case INVALID:
+		return nil, ErrInvalidKeyType
+	case EC:
+		return baseGenEcdsaKwy()
+	case RSA:
+		return baseGenRsaKey()
+	default:
+		panic("invalid enum case: " + strconv.Itoa(int(kty)))
+	}
+}
+
+func GenNewKey(kty KeyTypes, use string, isPublic bool, withAlg bool) (jwk.Key, error) {
+	key, err := genBaseKey(kty)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate %s key: %w", KtyToValue(kty), err)
+	}
+	if use != "" {
+		key.Set("use", use)
+	}
+	if withAlg {
+		alg := defaultAlg(KtyToValue(kty), use)
+		key.Set("alg", alg)
+	}
+	if isPublic {
+		key, err = toPublic(key)
+		if err != nil {
+			return nil, err
 		}
 	}
-	kid, err := key.Thumbprint(crypto.SHA256)
+	return key, nil
+}
+
+func SerializeKey(key jwk.Key) string {
+	serialized, err := json.Marshal(key)
 	if err != nil {
-		return "", fmt.Errorf("failed to produce key thumbprint for RSA key: %w", err)
+		panic(fmt.Errorf("failed to serialized key: %w", err))
 	}
-	serKid := base64.RawURLEncoding.EncodeToString(kid)
-	key.Set(jwk.KeyIDKey, serKid)
-	key.Set(jwk.KeyUsageKey, usage)
-	serKey, err := json.Marshal(key)
-	if err != nil {
-		return "", fmt.Errorf("failed to serialize key: %w", err)
-	}
-	return string(serKey), nil
+	return string(serialized)
 }

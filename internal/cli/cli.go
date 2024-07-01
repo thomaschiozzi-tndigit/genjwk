@@ -6,28 +6,37 @@ import (
 	"github.com/thomaschiozzi-tndigit/genjwk/internal/genjwk"
 )
 
-func Run() int {
+func Run() (status int) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("failed to unexpected program state!")
+			fmt.Println(r)
+			status = genjwk.ErrCodeGeneric
+		}
+	}()
 	overrideUsage()
 	pa, err := parseArgs()
-	// TODO: wrap and refactor
 	if err != nil {
 		fmt.Println(err.Error() + "\n\n" + cliUsage)
-		return errToErrCode(err)
+		status = genjwk.ErrToErrCode(err)
+		return
 	}
-	var k string
-	if pa.Kty == EC {
-		k, err = genjwk.GenEcdsaKey(pa.Public)
-	} else {
-		usage := "sig"
-		if pa.IsEnc {
-			usage = "enc"
-		}
-		k, err = genjwk.GenRsaKey(pa.Public, usage)
-	}
+	key, err := runWithArgs(pa)
 	if err != nil {
-		fmt.Printf("failed to generate key: %s\n", err.Error())
-		return errToErrCode(err)
+		fmt.Println("failed to due error: " + err.Error())
+		status = genjwk.ErrToErrCode(err)
+		return
 	}
-	fmt.Print(k)
+	fmt.Print(key)
 	return 0
+}
+
+func runWithArgs(pa ProgramArgs) (serializedKey string, err error) {
+	key, err := genjwk.GenNewKey(pa.Kty, pa.KeyUse(), pa.Public, pa.IsAlg)
+	if err != nil {
+		fmt.Println("the program failed due to the following error: " + err.Error())
+		return "", err
+	}
+	serializedKey = genjwk.SerializeKey(key)
+	return
 }

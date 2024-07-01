@@ -4,10 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
+
+	"github.com/thomaschiozzi-tndigit/genjwk/internal/genjwk"
 )
 
-const cliUsage = `genjwk [--public] [--enc] [--alg] {ec|rsa}
+const version = "v0.1.1"
+
+const cliUsage = `genjwk ` + version + ` [--public] [--enc] [--alg] {ec|rsa}
 
 Generate a fresh jwk.
 Positional arguments:
@@ -20,22 +23,18 @@ Optional arguments:
 		is assumed to be for signing operations 
 	--alg: if set, wil assign default algorithm for that key`
 
-func keyFromValue(value string) keyType {
-	switch v := strings.ToLower(value); v {
-	case "ec":
-		return EC
-	case "rsa":
-		return RSA
-	default:
-		return INVALID
-	}
-}
-
 type ProgramArgs struct {
 	Public bool
 	IsEnc  bool
 	IsAlg  bool
-	Kty    keyType
+	Kty    genjwk.KeyTypes
+}
+
+func (pa *ProgramArgs) KeyUse() string {
+	if pa.IsEnc {
+		return "enc"
+	}
+	return "sig"
 }
 
 func overrideUsage() {
@@ -53,11 +52,12 @@ func parseArgs() (ProgramArgs, error) {
 	flag.Parse()
 	pargs := flag.Args()
 	if len(pargs) != 1 {
-		return ProgramArgs{}, fmt.Errorf("%w: missing positional argument {ec|rsa}", ErrorBadUsage)
+		return ProgramArgs{}, fmt.Errorf("%w: missing positional argument {ec|rsa}", genjwk.ErrorBadUsage)
 	}
-	kyt := keyFromValue(pargs[0])
-	if kyt == INVALID {
-		return ProgramArgs{}, fmt.Errorf("%w: invalid value for positional argument {ec|rsa}", ErrorBadUsage)
+	kyt := genjwk.KtyFromValue(pargs[0])
+	if kyt == genjwk.INVALID {
+		return ProgramArgs{}, fmt.Errorf("%w: invalid value for positional argument {ec|rsa}", genjwk.ErrorBadUsage)
 	}
+	pa.Kty = kyt
 	return pa, nil
 }
