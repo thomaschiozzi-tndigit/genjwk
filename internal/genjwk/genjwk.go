@@ -35,7 +35,7 @@ func defaultAlg(kty string, use string) string {
 		case "EC":
 			return "ECDH-ES"
 		case "RSA":
-			return "RSA_OAEP"
+			return "RSA-OAEP"
 		case "":
 			panic("missing key use")
 		default:
